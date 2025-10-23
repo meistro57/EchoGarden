@@ -1,0 +1,21 @@
+{
+  "name": "ui",
+  "version": "1.0.0",
+  "description": "Next.js UI for MCP Chat Log Intelligence",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "14.0.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-button": "^1.0.0",
+    "@radix-ui/react-input": "^1.0.0",
+    "@radix-ui/react-textarea": "^1.0.0",
+    "lucide-react": "^0.300.0",
+    "recharts": "^2.10.0"
+  }
+}
