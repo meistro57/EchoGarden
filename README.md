@@ -6,7 +6,7 @@
 make dev-init && make dev-up
 
 # Or manually:
-git clone <this-repo>
+git clone https://github.com/meistro57/EchoGarden.git
 cp infra/.env.example infra/.env  
 docker compose -f infra/docker-compose.yml up -d
 ./scripts/dev_start.sh
