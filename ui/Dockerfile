@@ -2,13 +2,17 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-COPY ui/package*.json ./
-RUN npm install
+# Install production dependencies
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
 
-COPY ui/ .
+# Copy the rest of the UI source
+COPY . .
 
+# Build the Next.js application for production
 RUN npm run build
 
 EXPOSE 3000
 
+# Start the production server
 CMD ["npm", "start"]
