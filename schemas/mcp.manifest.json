@@ -1,1 +1,111 @@
-{"name": "chat-log-mcp", "version": "0.1.0", "tools": [{"name": "search_messages", "description": "Hybrid search over chat logs with filters.", "input_schema": {"type": "object", "properties": {"query": {"type": "string"}, "k": {"type": "integer"}, "filters": {"type": "object"}}}}, {"name": "get_timeline", "description": "Return ordered messages for a conversation.", "input_schema": {"type": "object", "properties": {"conv_id": {"type": "string"}}}}, {"name": "build_context_pack", "description": "Create prompt-ready block from message IDs with token budgeting.", "input_schema": {"type": "object", "properties": {"message_ids": {"type": "array", "items": {"type": "string"}}, "max_tokens": {"type": "integer"}}}}, {"name": "topic_map", "description": "Return topic labels and anchor messages over a time range.", "input_schema": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}}}}]}
+{
+  "name": "chat-log-mcp",
+  "version": "0.3.0",
+  "tools": [
+    {
+      "name": "search_messages",
+      "description": "Hybrid search over chat logs with filters.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_timeline",
+      "description": "Return ordered messages for a conversation.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conv_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conv_id"
+        ]
+      }
+    },
+    {
+      "name": "build_context_pack",
+      "description": "Create prompt-ready block from message IDs with token budgeting.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16384
+          },
+          "model": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_ids"
+        ]
+      }
+    },
+    {
+      "name": "topic_map",
+      "description": "Return weighted topic labels and anchor messages over a time range.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "ISO-8601 start timestamp"
+          },
+          "to": {
+            "type": "string",
+            "description": "ISO-8601 end timestamp"
+          },
+          "conv_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "min_occurrences": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "sample_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "max_messages": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 20000
+          }
+        }
+      }
+    }
+  ]
+}

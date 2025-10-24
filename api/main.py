@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime
 import json
 import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -17,9 +18,16 @@ from psycopg2 import sql
 from psycopg2.extras import RealDictCursor, execute_batch
 import tiktoken
 
-from api.services import build_highlights, normalize_message, parse_search_terms, redact_text
+from api.services import (
+    TopicBundle,
+    build_highlights,
+    extract_topics,
+    normalize_message,
+    parse_search_terms,
+    redact_text,
+)
 
-app = FastAPI(title="MCP Chat Log Intelligence API", version="0.2.0")
+app = FastAPI(title="MCP Chat Log Intelligence API", version="0.3.0")
 
 
 class ContextPackRequest(BaseModel):
@@ -93,6 +101,36 @@ class ThreadResponse(BaseModel):
     descendants: List[ThreadMessage]
 
 
+class TopicAnchor(BaseModel):
+    """Description of a representative message for a topic."""
+
+    conv_id: str
+    msg_id: str
+    role: Optional[str]
+    ts: Optional[str]
+    text: str
+
+
+class TopicEntry(BaseModel):
+    """Serializable representation of a derived topic."""
+
+    label: str
+    occurrences: int
+    weight: float
+    first_seen_ts: Optional[str]
+    anchors: List[TopicAnchor]
+
+
+class TopicMapResponse(BaseModel):
+    """Response payload summarising topics over a time window."""
+
+    topics: List[TopicEntry]
+    total_messages: int
+    distinct_conversations: int
+    window_start: Optional[str]
+    window_end: Optional[str]
+
+
 # Database connection helpers
 
 def get_db() -> psycopg2.extensions.connection:
@@ -119,6 +157,23 @@ def db_cursor(*, dict_cursor: bool = False) -> Iterable[Tuple[psycopg2.extension
     finally:
         cur.close()
         conn.close()
+
+
+def _normalise_iso(value: Optional[str]) -> Optional[str]:
+    """Validate and normalise ISO-8601 timestamps."""
+
+    if value is None:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    if candidate.endswith("Z"):
+        candidate = f"{candidate[:-1]}+00:00"
+    try:
+        datetime.fromisoformat(candidate)
+    except ValueError as exc:  # pragma: no cover - defensive guard for invalid dates
+        raise HTTPException(status_code=400, detail=f"Invalid ISO timestamp: {value}") from exc
+    return candidate
 
 
 # Import ChatGPT export
@@ -420,6 +475,97 @@ def search_messages(q: str, k: int = 50, filters: Optional[str] = None) -> Dict[
         )
 
     return {"results": hits, "total": len(hits)}
+
+
+@app.get("/analytics/topic-map", response_model=TopicMapResponse)
+def build_topic_map(
+    date_from: Optional[str] = Query(None, description="Inclusive ISO-8601 timestamp filter"),
+    date_to: Optional[str] = Query(None, description="Inclusive ISO-8601 timestamp filter"),
+    conv_id: Optional[str] = Query(None, description="Restrict to a specific conversation"),
+    limit: int = Query(10, ge=1, le=50, description="Number of topic labels to return"),
+    min_occurrences: int = Query(2, ge=1, le=20, description="Minimum messages required for a topic"),
+    sample_limit: int = Query(3, ge=1, le=5, description="Sample anchors retained per topic"),
+    max_messages: int = Query(5000, ge=10, le=20000, description="Maximum messages scanned for the window"),
+) -> TopicMapResponse:
+    start_ts = _normalise_iso(date_from)
+    end_ts = _normalise_iso(date_to)
+
+    with db_cursor(dict_cursor=True) as (_, cur):
+        where_parts: List[str] = []
+        params: List[Any] = []
+
+        if conv_id:
+            where_parts.append("conv_id = %s")
+            params.append(conv_id)
+        if start_ts:
+            where_parts.append("ts >= %s")
+            params.append(start_ts)
+        if end_ts:
+            where_parts.append("ts <= %s")
+            params.append(end_ts)
+
+        where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+
+        query = sql.SQL(
+            """
+            SELECT conv_id, msg_id, role, ts::text AS ts, text
+            FROM messages
+            {where_clause}
+            ORDER BY ts ASC
+            LIMIT %s
+            """
+        ).format(where_clause=sql.SQL(where_clause))
+
+        cur.execute(query, [*params, max_messages])
+        rows = cur.fetchall()
+
+    if not rows:
+        return TopicMapResponse(
+            topics=[],
+            total_messages=0,
+            distinct_conversations=0,
+            window_start=start_ts,
+            window_end=end_ts,
+        )
+
+    topic_bundles: List[TopicBundle] = extract_topics(
+        rows,
+        limit=limit,
+        min_occurrences=min_occurrences,
+        sample_limit=sample_limit,
+    )
+
+    topics: List[TopicEntry] = []
+    for bundle in topic_bundles:
+        anchors = [
+            TopicAnchor(
+                conv_id=sample.conv_id,
+                msg_id=sample.msg_id,
+                role=sample.role,
+                ts=sample.ts,
+                text=sample.text,
+            )
+            for sample in bundle.anchors
+        ]
+        topics.append(
+            TopicEntry(
+                label=bundle.label,
+                occurrences=bundle.occurrences,
+                weight=bundle.weight,
+                first_seen_ts=bundle.first_seen_ts,
+                anchors=anchors,
+            )
+        )
+
+    distinct_conversations = len({row["conv_id"] for row in rows})
+
+    return TopicMapResponse(
+        topics=topics,
+        total_messages=len(rows),
+        distinct_conversations=distinct_conversations,
+        window_start=rows[0].get("ts"),
+        window_end=rows[-1].get("ts"),
+    )
 
 
 @app.post("/context/pack", response_model=ContextPackResponse)
