@@ -1,19 +1,23 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+# api/main.py
 from datetime import datetime, timedelta
-import hashlib
-import re
 import json
+import os
 from pathlib import Path
-import zipfile
+import re
 import tempfile
+import zipfile
+
 import boto3
 from botocore.client import Config
+import click
+from fastapi import FastAPI, HTTPException
 import psycopg2
-from psycopg2.extras import execute_batch, RealDictCursor
-import os
+from psycopg2.extras import RealDictCursor, execute_batch
+from pydantic import BaseModel
 import tiktoken
+from typing import Any, Dict, List, Optional
+
+from api.services import normalize_message, redact_text
 
 app = FastAPI(title="MCP Chat Log Intelligence API", version="0.1.0")
 
@@ -22,46 +26,6 @@ def get_db():
     return psycopg2.connect(
         dsn=os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres")
     )
-
-# PII Redaction (configurable)
-def redact_text(text: str, enable_pii: bool = True) -> str:
-    if not enable_pii:
-        return text
-    
-    # Basic email redaction
-    text = re.sub(r'\S+@\S+', '«EMAIL»', text)
-    # Phone numbers
-    text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '«PHONE»', text)
-    # IPs
-    text = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', '«IP»', text)
-    # URLs
-    text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '«URL»', text)
-    
-    return text
-
-# Normalize message to JSONL format
-def normalize_message(msg: Dict, conv_id: str, owner_id: str = "default") -> Dict:
-    text = msg.get('content', msg.get('text', ''))
-    text = redact_text(text)
-    
-    # Compute hash for deduplication
-    canonical_text = msg.get('content', msg.get('text', '')).lower().strip()
-    hash_value = hashlib.sha256(canonical_text.encode()).hexdigest()
-    
-    normalized = {
-        "conv_id": conv_id,
-        "msg_id": msg.get('id', str(hash_value)[:8]),
-        "role": msg.get('role', 'user'),
-        "ts": msg.get('create_time', msg.get('timestamp', datetime.now().isoformat())),
-        "text": text,
-        "parent_id": msg.get('parent', None),
-        "hash": hash_value,
-        "meta": {
-            "model": msg.get('model', None),
-            "source": msg.get('source', 'chatgpt_export'),
-        }
-    }
-    return normalized
 
 # Import ChatGPT export
 @app.post("/ingest/chatgpt-export")
