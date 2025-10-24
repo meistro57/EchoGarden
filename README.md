@@ -1,53 +1,84 @@
-# Quick Development
+# README.md
+# EchoGarden
 
-## One-Command Setup
+EchoGarden is a research environment for building rich memory and search experiences from large ChatGPT exports. It stitches together an ingestion pipeline, a FastAPI-powered service layer, Celery workers, and a modern web UI so that you can explore conversational datasets with semantic and temporal context.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Local development](#local-development)
+- [Testing](#testing)
+- [Project layout](#project-layout)
+- [CI with GitHub Actions](#ci-with-github-actions)
+- [Troubleshooting](#troubleshooting)
+
+## Quick start
+
+The quickest way to bring up the full stack is via the Makefile wrapper. This bootstraps Python and JavaScript dependencies, provisions the Docker services, and starts the developer processes.
+
 ```bash
-# Clone and start everything
-make dev-init && make dev-up
+make dev-init      # one-off: install tooling, copy env files
+make dev-up        # start API, worker, UI, and infrastructure services
+```
 
-# Or manually:
+Prefer to run the commands manually? The following sequence mirrors the Make targets without hiding any steps:
+
+```bash
 git clone https://github.com/meistro57/EchoGarden.git
-cp infra/.env.example infra/.env  
+cd EchoGarden
+cp infra/.env.example infra/.env
 docker compose -f infra/docker-compose.yml up --build -d
 ./scripts/dev_start.sh
 ```
 
-## Local Development Workflow
-1. **Start infrastructure:** `docker compose -f infra/docker-compose.yml up -d db redis minio` (Note: services now include api, worker, ui - full stack with `--build`)
-2. **Load sample data:** `./scripts/dev_seed.sh`
-3. **Run API:** `cd api && python -m uvicorn main:app --reload`
-4. **Run worker:** `cd worker && celery -A tasks worker --loglevel=info`  
-5. **Run UI:** `cd ui && npm run dev`
+## Local development
+
+1. **Infrastructure:** `docker compose -f infra/docker-compose.yml up -d db redis minio`
+2. **Seed data:** `./scripts/dev_seed.sh`
+3. **API:** `cd api && python -m uvicorn main:app --reload`
+4. **Worker:** `cd worker && celery -A tasks worker --loglevel=info`
+5. **UI:** `cd ui && npm run dev`
+
+Useful environment variables live in `infra/.env`. The defaults are safe for a local sandbox; override them if you need to point at external services.
 
 ## Testing
-```bash
-# Run system tests
-python scripts/test_system.py
 
-# Load your ChatGPT export
+Automated tests live under `tests/` and focus on input normalisation and PII redaction at present. They are executable locally and in CI via `pytest`.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest tests
+```
+
+End-to-end smoke tests for the ingestion pipeline remain available:
+
+```bash
+python scripts/test_system.py
 python ingest/import_chatgpt_export.py --owner-id your_user path/to/conversations.zip
 ```
 
-## API Endpoints
-- `POST /health` - Service health check
-- `POST /ingest/chatgpt-export` - Import conversations from ChatGPT ZIP
-- `GET /search?q=...&k=50` - Hybrid search with filters
-- `GET /conversation/{id}/timeline` - Get conversation messages  
-- `POST /context/pack` - Build prompt-ready context blocks
-- `GET /topics?from=...&to=...` - Return topic labels and anchor messages
+## Project layout
 
-## Database Setup
-```sql
-psql -U postgres < infra/init_db.sql
-```
+| Path          | Description                                                 |
+|---------------|-------------------------------------------------------------|
+| `api/`        | FastAPI application, including service utilities.           |
+| `worker/`     | Celery worker processes and scheduled jobs.                 |
+| `ui/`         | Front-end (Next.js) application for browsing conversations. |
+| `infra/`      | Docker Compose stack, PostgreSQL bootstrap scripts, envs.   |
+| `ingest/`     | One-off ingestion scripts and supporting libraries.         |
+| `schemas/`    | SQL schemas and migration helpers.                          |
+| `tests/`      | Pytest-based unit tests.                                    |
 
-## Deployment Notes
-- Docker Compose version is updated (obsolete `version: "3.8"` removed)
-- Full stack includes pgvector-enabled Postgres, Redis, MinIO, API, Worker, UI
-- API now serves MCP tools at `/health` for health checks
+## CI with GitHub Actions
 
-## Next Steps (Milestone 2)
-- Integrate vector search with embeddings
-- Add MCP server mode to API  
-- Topic clustering and analytics
-- Improve UI with context builder workspace
+Continuous integration runs on every push and pull request. The workflow in `.github/workflows/ci.yml` installs dependencies from `requirements-dev.txt` and executes the automated test suite. Extend this workflow as new services or languages gain coverage.
+
+To try the workflow locally you can install [act](https://github.com/nektos/act) and run `act -j tests` to execute the same steps in a container.
+
+## Troubleshooting
+
+- **Docker refuses to start MinIO:** Ensure port `9000` is free and that the host has at least 4GB RAM available.
+- **`psycopg2` build issues on macOS:** Install PostgreSQL via Homebrew (`brew install postgresql`) to provide the required headers.
+- **`pytest` cannot import the API package:** Activate the virtual environment and run tests from the repository root so that `api/` is discoverable.
