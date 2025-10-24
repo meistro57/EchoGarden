@@ -12,13 +12,14 @@ import zipfile
 
 import click
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
 import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor, execute_batch
 import tiktoken
 
-from api.services import (
+from services import (
     TopicBundle,
     build_highlights,
     extract_topics,
@@ -28,6 +29,15 @@ from api.services import (
 )
 
 app = FastAPI(title="MCP Chat Log Intelligence API", version="0.3.0")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # UI origin
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 
 class ContextPackRequest(BaseModel):
