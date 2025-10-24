@@ -8,7 +8,7 @@ a simpler, more Pythonic API compared to the standard mcp library.
 import os
 from typing import List, Optional
 import httpx
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
