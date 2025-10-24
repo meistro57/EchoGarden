@@ -10,35 +10,51 @@ from datetime import datetime
 import os
 
 # PII Redaction (configurable)
-def redact_text(text: str, enable_pii: bool = True) -> str:
+def redact_text(text: str | dict, enable_pii: bool = True) -> str:
     if not enable_pii:
-        return text
+        if isinstance(text, str):
+            return text
+        return json.dumps(text)
+    
+    # Convert dict to string if needed
+    text_str = json.dumps(text) if isinstance(text, dict) else text
     
     # Basic email redaction
-    text = re.sub(r'\S+@\S+', '«EMAIL»', text)
+    text_str = re.sub(r'\S+@\S+', '«EMAIL»', text_str)
     # Phone numbers
-    text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '«PHONE»', text)
+    text_str = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '«PHONE»', text_str)
     # IPs
-    text = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', '«IP»', text)
+    text_str = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', '«IP»', text_str)
     # URLs
-    text = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '«URL»', text)
+    text_str = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '«URL»', text_str)
     
-    return text
+    return text_str
 
 # Normalize message to JSONL format
-def normalize_message(msg: Dict, conv_id: str, owner_id: str = "default") -> Dict:
+from typing import Dict, Any
+def normalize_message(msg: Dict[str, Any], conv_id: str, owner_id: str = "default", fallback_ts: float = None) -> Dict:
     text = msg.get('content', msg.get('text', ''))
     text = redact_text(text)
-    
+
     # Compute hash for deduplication
-    canonical_text = msg.get('content', msg.get('text', '')).lower().strip()
+    canonical_text = text.lower().strip()  # Use already redacted text
     hash_value = hashlib.sha256(canonical_text.encode()).hexdigest()
-    
+
+    # Handle timestamp - msg timestamps can be None, so use 'or' for fallback
+    ts = msg.get('create_time') or msg.get('timestamp')
+    if ts is None:
+        # Use conversation timestamp if available, otherwise current time
+        ts = fallback_ts if fallback_ts else datetime.now().timestamp()
+
+    # Convert Unix timestamp to ISO format if it's a number
+    if isinstance(ts, (int, float)):
+        ts = datetime.fromtimestamp(ts).isoformat()
+
     normalized = {
         "conv_id": conv_id,
         "msg_id": msg.get('id', str(hash_value)[:8]),
         "role": msg.get('role', 'user'),
-        "ts": msg.get('create_time', msg.get('timestamp', datetime.now().isoformat())),
+        "ts": ts,
         "text": text,
         "parent_id": msg.get('parent', None),
         "hash": hash_value,
@@ -66,24 +82,25 @@ def import_chatgpt_export(zip_path: str, db_url: str, owner_id: str = "default")
         for conv_data in conversations:
             conv_id = conv_data['id']
             title = conv_data.get('title', 'Untitled')
-            
+            fallback_ts = conv_data.get('create_time') or conv_data.get('update_time')
+
             # Insert conversation
             cur.execute("""
-                INSERT INTO conversations (conv_id, title, owner_id) 
+                INSERT INTO conversations (conv_id, title, owner_id)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (conv_id) DO NOTHING
             """, (conv_id, title, owner_id))
             conv_count += 1
             click.echo(f"Imported conversation: {title}")
-            
+
             # Insert messages with upsert
             messages = []
             for msg in conv_data.get('mapping', {}).values():
                 if msg.get('message'):
-                    normalized = normalize_message(msg['message'], conv_id, owner_id)
+                    normalized = normalize_message(msg['message'], conv_id, owner_id, fallback_ts)
                     messages.append((
                         normalized['conv_id'], normalized['msg_id'], normalized['role'],
-                        normalized['ts'], normalized['text'], normalized['hash'], 
+                        normalized['ts'], normalized['text'], normalized['hash'],
                         json.dumps(normalized['meta'])
                     ))
             
