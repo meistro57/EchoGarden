@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -37,6 +38,13 @@ class SearchMessagesArgs(BaseModel):
         ge=1,
         le=200,
         description="Maximum number of results to return.",
+    )
+    filters: Dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional filters such as role, conv_id, date_from, or date_to. "
+            "Values are forwarded to the API as a JSON payload."
+        ),
     )
 
 
@@ -102,8 +110,12 @@ class EchoGardenAPI:
     async def search_messages(self, args: SearchMessagesArgs) -> str:
         """Call the search endpoint and format results."""
 
+        params: Dict[str, Any] = {"q": args.query, "k": args.k}
+        if args.filters:
+            params["filters"] = json.dumps(args.filters)
+
         async with self._client() as client:
-            response = await client.get("/search", params={"q": args.query, "k": args.k})
+            response = await client.get("/search", params=params)
             response.raise_for_status()
             payload = response.json()
 
