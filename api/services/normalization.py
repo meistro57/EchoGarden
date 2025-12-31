@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import re
 from typing import Any, Dict, Optional
@@ -65,7 +65,7 @@ def normalize_message(
 
     timestamp = msg.get("create_time", msg.get("timestamp"))
     if timestamp is None:
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
     normalised = {
         "conv_id": conv_id,

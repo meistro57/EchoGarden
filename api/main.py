@@ -487,6 +487,7 @@ def search_messages(q: str, k: int = 50, filters: Optional[str] = None) -> Dict[
     return {"results": hits, "total": len(hits)}
 
 
+@app.get("/topics", response_model=TopicMapResponse)
 @app.get("/analytics/topic-map", response_model=TopicMapResponse)
 def build_topic_map(
     date_from: Optional[str] = Query(None, description="Inclusive ISO-8601 timestamp filter"),
