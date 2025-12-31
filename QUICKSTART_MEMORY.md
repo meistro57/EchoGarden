@@ -1,5 +1,7 @@
 # 🧠 Quick Start: Using Your ChatGPT Memory
 
+> **Version**: 1.0.0 | [Changelog](CHANGELOG.md)
+
 Your EchoGarden is now loaded with **1,859 conversations** and **56,801 messages**!
 
 ## ✅ What's Working Right Now

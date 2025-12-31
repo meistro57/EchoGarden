@@ -1,5 +1,7 @@
 # EchoGarden Chatbot CLI
 
+> **Version**: 1.0.0 | [Changelog](../CHANGELOG.md)
+
 An interactive chatbot that combines multiple AI providers with EchoGarden's semantic memory search.
 
 ## Supported AI Providers

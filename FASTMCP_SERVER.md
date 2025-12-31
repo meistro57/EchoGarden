@@ -1,5 +1,7 @@
 # FastMCP Server for EchoGarden
 
+> **Version**: 1.0.0 | [Changelog](CHANGELOG.md)
+
 ## Overview
 
 This is an alternative MCP server implementation for EchoGarden using the [fastmcp](https://github.com/jlowin/fastmcp) library. It provides the same functionality as the original `mcp_server.py` but with a simpler, more Pythonic API.

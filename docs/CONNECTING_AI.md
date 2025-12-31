@@ -1,5 +1,7 @@
 # Connecting AI Assistants to EchoGarden Memory
 
+> **Version**: 1.0.0 | [Changelog](../CHANGELOG.md)
+
 This guide shows you how to connect AI assistants (Claude Desktop, custom scripts, or future ChatGPT) to your EchoGarden conversation memory using the Model Context Protocol (MCP).
 
 ## Prerequisites
