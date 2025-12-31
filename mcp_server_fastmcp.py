@@ -5,14 +5,15 @@ This is an alternative implementation using the fastmcp library, which provides
 a simpler, more Pythonic API compared to the standard mcp library.
 """
 
-import os
 from typing import List, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
+from config import Settings
 
 # Configuration
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-HTTP_TIMEOUT = 30.0
+settings = Settings()
+API_BASE_URL = str(settings.api_base_url)
+HTTP_TIMEOUT = settings.request_timeout_seconds
 
 # Create FastMCP server
 mcp = FastMCP("echogarden-memory")
@@ -202,9 +203,20 @@ async def topic_map(
             formatted = []
             for topic in topics:
                 anchors = topic.get('anchors', [])[:3]
+                anchor_previews = []
+                for anchor in anchors:
+                    if isinstance(anchor, dict):
+                        text_preview = anchor.get('text', '')[:50]
+                        if len(anchor.get('text', '')) > 50:
+                            text_preview += "..."
+                        anchor_previews.append(f"{anchor.get('conv_id', 'unknown')}: {text_preview}")
+                    else:
+                        anchor_previews.append(str(anchor))
+
                 formatted.append(
-                    f"• {topic['label']} (weight: {topic['weight']})\n"
-                    f"  Anchors: {', '.join(anchors)}"
+                    f"• {topic['label']} (weight: {topic['weight']:.4f})\n"
+                    f"  Occurrences: {topic.get('occurrences', 0)}\n"
+                    f"  Sample messages: {'; '.join(anchor_previews) if anchor_previews else 'None'}"
                 )
 
             return f"Topic Map ({len(topics)} topics):\n\n" + "\n\n".join(formatted)

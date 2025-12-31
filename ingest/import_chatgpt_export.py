@@ -7,7 +7,7 @@ from psycopg2.extras import execute_batch
 import hashlib
 import re
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from typing import Dict, Any
 
@@ -67,9 +67,9 @@ def normalize_message(msg: Dict[str, Any], conv_id: str, owner_id: str = "defaul
     canonical_text = text.lower().strip()
     hash_value = hashlib.sha256(canonical_text.encode()).hexdigest()
 
-    ts = msg.get('create_time') or msg.get('timestamp') or fallback_ts or datetime.now().timestamp()
+    ts = msg.get('create_time') or msg.get('timestamp') or fallback_ts or datetime.now(timezone.utc).timestamp()
     if isinstance(ts, (int, float)):
-        ts = datetime.fromtimestamp(ts).isoformat()
+        ts = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
     role = msg.get('role') or (msg.get('author', {}) or {}).get('role') or 'user'
 
@@ -131,16 +131,16 @@ def import_chatgpt_export(zip_path: str, db_url: str, owner_id: str = "default")
                 normalized = normalize_message(m, conv_id, owner_id, fallback_ts)
                 messages.append((
                     normalized['conv_id'], normalized['msg_id'], normalized['role'],
-                    normalized['ts'], normalized['text'], normalized['hash'],
-                    json.dumps(normalized['meta'])
+                    normalized['ts'], normalized['text'], normalized.get('parent_id'),
+                    normalized['hash'], json.dumps(normalized['meta'])
                 ))
 
             if messages:
                 execute_batch(
                     cur,
                     """
-                    INSERT INTO messages (conv_id, msg_id, role, ts, text, hash, meta)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO messages (conv_id, msg_id, role, ts, text, parent_id, hash, meta)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (conv_id, msg_id) DO NOTHING
                     """,
                     messages,
