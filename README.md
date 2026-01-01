@@ -44,41 +44,225 @@ Built for researchers, knowledge workers, and anyone drowning in AI conversation
 
 ---
 
-## 🚀 Quick Start (< 5 minutes)
+## 🚀 Quick Start
 
-### The One-Command Wonder
+**Choose your installation path:**
+- **🐳 Path A: Docker-Only (Recommended)** - Everything runs in containers, minimal setup
+- **💻 Path B: Local Development** - Run services directly on your machine, full control
+
+---
+
+### Path A: Docker-Only Installation (Recommended)
+
+**Prerequisites:**
+- Docker & Docker Compose
+- Make (usually pre-installed on Linux/macOS)
+- Python 3.11+ (only for data import and optional features)
+
+#### Step 1: Launch All Services
 
 ```bash
 git clone https://github.com/meistro57/EchoGarden.git
 cd EchoGarden
-make dev-init      # One-time setup: install tools, copy env files
-make dev-up        # Launch the full stack (API, worker, UI, infrastructure)
+make dev-up
 ```
 
-**That's it!** Now visit:
-- 🌐 **Web UI**: http://localhost:3000
-- 🔧 **API Docs**: http://localhost:8000/docs
-- 📊 **MinIO Console**: http://localhost:9001
+This single command:
+- Copies `infra/.env.example` to `infra/.env`
+- Starts PostgreSQL, Redis, MinIO, API, Worker, and UI in Docker containers
+- Initializes the database schema with pgvector extension
 
-### Import Your ChatGPT Export
+#### Step 2: Verify Installation
 
 ```bash
-# Download your ChatGPT data from https://chat.openai.com (Settings > Data Controls > Export)
-# Then import it:
+# Check all services are running
+docker compose -f infra/docker-compose.yml ps
+
+# Test the API
+curl http://localhost:8000/health    # Should return {"status":"healthy"}
+```
+
+Now visit:
+- 🌐 **Web UI**: http://localhost:3000
+- 🔧 **API Docs**: http://localhost:8000/docs
+- 📊 **MinIO Console**: http://localhost:9001 (credentials: `minio` / `minio123`)
+
+#### Step 3: Set Up Python Environment for Data Import
+
+```bash
+# Create a virtual environment (recommended)
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies for the import script
+pip install -r ingest/requirements.txt
+```
+
+#### Step 4: Import Your ChatGPT Export
+
+```bash
+# 1. Download your data from https://chat.openai.com
+#    Settings > Data Controls > Export Data
+#
+# 2. Wait for email with download link (can take up to 24 hours)
+#
+# 3. Import the zip file:
 python ingest/import_chatgpt_export.py \
   --owner-id your_name \
   --db-url "postgresql://postgres:postgres@localhost:5432/postgres" \
   /path/to/conversations.zip
 ```
 
-### Connect Claude Desktop for MCP Magic
+**Note:** The database URL uses `localhost:5432` because the import script runs on your host machine and connects to the containerized PostgreSQL which exposes port 5432.
 
-See [docs/CONNECTING_AI.md](docs/CONNECTING_AI.md) for the full guide, but here's the TL;DR:
+#### Step 5 (Optional): Set Up Chatbot CLI
 
-1. Edit `~/.config/Claude/claude_desktop_config.json` (or macOS/Windows equivalent)
-2. Add EchoGarden MCP server config
-3. Ask Claude: *"What did I say about quantum computing last month?"*
-4. Watch the magic happen ✨
+The chatbot CLI lets you chat with an AI that has access to your conversation history.
+
+```bash
+# Install additional dependencies
+pip install -r mcp-requirements.txt
+pip install -r api/requirements.txt
+
+# Configure your API key in infra/.env
+# Add one of these lines:
+#   OPENROUTER_API_KEY=sk-or-v1-...
+#   OPENAI_API_KEY=sk-...
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   DEEPSEEK_API_KEY=sk-...
+
+# Run the chatbot
+python scripts/chatbot_cli.py --provider openrouter
+```
+
+See [docs/CHATBOT_CLI.md](docs/CHATBOT_CLI.md) for full configuration options.
+
+#### Step 6 (Optional): Connect Claude Desktop via MCP
+
+```bash
+# Install MCP dependencies (if not already done in Step 5)
+pip install -r mcp-requirements.txt
+
+# Edit Claude Desktop config:
+# macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+# Linux: ~/.config/Claude/claude_desktop_config.json
+# Windows: %APPDATA%\Claude\claude_desktop_config.json
+
+# Add this configuration (replace /full/path/to with your actual path):
+{
+  "mcpServers": {
+    "echogarden-memory": {
+      "command": "python3",
+      "args": ["/full/path/to/EchoGarden/mcp_server_fastmcp.py"],
+      "env": {
+        "API_BASE_URL": "http://localhost:8000"
+      }
+    }
+  }
+}
+
+# Restart Claude Desktop and ask: "Search my chat history for conversations about AI"
+```
+
+See [docs/CONNECTING_AI.md](docs/CONNECTING_AI.md) for detailed MCP setup and troubleshooting.
+
+---
+
+### Path B: Local Development (Advanced)
+
+**Prerequisites:**
+- Python 3.11+
+- Node.js 18+
+- Docker & Docker Compose (for infrastructure only: PostgreSQL, Redis, MinIO)
+- 4GB+ RAM
+
+This approach runs infrastructure in Docker but runs API, Worker, and UI directly on your machine for faster iteration and debugging.
+
+#### Step 1: Clone and Configure
+
+```bash
+git clone https://github.com/meistro57/EchoGarden.git
+cd EchoGarden
+
+# Copy environment configuration
+cp infra/.env.example infra/.env
+
+# Edit infra/.env and configure:
+# - API keys (OPENAI_API_KEY, etc.)
+# - Database settings (keep DATABASE_URL as is for Docker)
+```
+
+#### Step 2: Start Infrastructure Services
+
+```bash
+# Start only PostgreSQL, Redis, and MinIO in Docker
+docker compose -f infra/docker-compose.yml up -d db redis minio
+
+# Wait for services to be ready (about 10 seconds)
+sleep 10
+
+# Initialize database schema
+docker compose -f infra/docker-compose.yml exec db psql -U postgres < infra/init_db.sql
+```
+
+#### Step 3: Set Up Python Environment
+
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install all Python dependencies
+pip install -r requirements-dev.txt    # API dependencies + testing tools
+pip install -r mcp-requirements.txt    # MCP server dependencies
+pip install -r ingest/requirements.txt # Import script dependencies
+pip install -r worker/requirements.txt # Worker dependencies
+```
+
+#### Step 4: Set Up UI
+
+```bash
+cd ui
+npm install
+cd ..
+```
+
+#### Step 5: Run Services in Separate Terminals
+
+**Terminal 1 - API Server:**
+```bash
+source .venv/bin/activate
+cd api
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Terminal 2 - Celery Worker:**
+```bash
+source .venv/bin/activate
+cd worker
+celery -A tasks worker --loglevel=info
+```
+
+**Terminal 3 - UI Development Server:**
+```bash
+cd ui
+npm run dev
+```
+
+#### Step 6: Verify Installation
+
+```bash
+# Test endpoints
+curl http://localhost:8000/health  # API
+curl http://localhost:3000         # UI
+```
+
+#### Step 7: Import Data and Use Features
+
+Now follow Steps 4-6 from Path A above to:
+- Import your ChatGPT export
+- Set up the chatbot CLI
+- Connect Claude Desktop via MCP
 
 ---
 
@@ -165,54 +349,41 @@ EchoGarden/
 
 ---
 
-## 🛠️ Local Development
+## 🔧 Handy Commands
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- Docker & Docker Compose
-- 4GB+ RAM (for Docker services)
-
-### Manual Setup (if you prefer more control)
+### Managing Services
 
 ```bash
-# 1. Clone and configure
-git clone https://github.com/meistro57/EchoGarden.git
-cd EchoGarden
-cp infra/.env.example infra/.env
+# Start all services (Docker mode)
+make dev-up
 
-# 2. Start infrastructure (PostgreSQL, Redis, MinIO)
-docker compose -f infra/docker-compose.yml up -d
+# Stop services (keeps data)
+make dev-stop
+# OR: docker compose -f infra/docker-compose.yml stop
 
-# 3. Install Python dependencies
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements-dev.txt
-pip install -r mcp-requirements.txt
+# Stop and remove all data
+make dev-down
+# OR: docker compose -f infra/docker-compose.yml down --volumes
 
-# 4. Install UI dependencies
-cd ui && npm install && cd ..
+# Restart a specific service
+docker compose -f infra/docker-compose.yml restart api
+docker compose -f infra/docker-compose.yml restart worker
+docker compose -f infra/docker-compose.yml restart ui
 
-# 5. Seed database (optional)
-./scripts/dev_seed.sh
-
-# 6. Run services
-# Terminal 1: API
-cd api && python -m uvicorn main:app --reload
-
-# Terminal 2: Worker
-cd worker && celery -A tasks worker --loglevel=info
-
-# Terminal 3: UI
-cd ui && npm run dev
+# View logs
+docker compose -f infra/docker-compose.yml logs -f api
+docker compose -f infra/docker-compose.yml logs -f worker
 ```
 
-### Handy Scripts
+### Utility Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `./scripts/dev_start.sh` | Start API, worker, and UI in orchestrated mode |
-| `./scripts/dev_seed.sh` | Populate PostgreSQL with sample data |
+| `make dev-up` | Start all services in Docker |
+| `make dev-stop` | Stop all services |
+| `make dev-down` | Stop and remove all containers and volumes |
+| `make test` | Run end-to-end system tests |
+| `./scripts/dev_seed.sh` | Populate PostgreSQL with sample data (placeholder) |
 | `./scripts/test_system.py` | End-to-end smoke test for ingestion pipeline |
 | `./scripts/chatbot_cli.py` | Interactive chatbot with memory integration |
 
@@ -312,26 +483,133 @@ git push origin feature/amazing-feature
 
 ## 🐛 Troubleshooting
 
-### Docker won't start MinIO
-- **Problem**: Port 9000 already in use
-- **Solution**: `lsof -i :9000` to find the process, kill it, and restart
+### Quick Start Issues
 
-### psycopg2 build issues on macOS
-- **Problem**: Missing PostgreSQL headers
-- **Solution**: `brew install postgresql` to get the required libraries
-
-### pytest can't import API package
-- **Problem**: PYTHONPATH not set correctly
-- **Solution**: Activate venv and run pytest from repo root
-
-### Need to reset the database?
+#### `make dev-up` fails
 ```bash
-make dev-down   # Stop and remove containers
+# Check if Docker is running
+docker ps
+
+# Check if ports are already in use
+lsof -i :3000  # UI
+lsof -i :8000  # API
+lsof -i :5432  # PostgreSQL
+lsof -i :9000  # MinIO
+
+# Kill processes using the ports if needed
+kill -9 <PID>
+
+# Try again
+make dev-down
+make dev-up
+```
+
+#### Services not responding after `make dev-up`
+```bash
+# Check which services are running
+docker compose -f infra/docker-compose.yml ps
+
+# Check logs for errors
+docker compose -f infra/docker-compose.yml logs api
+docker compose -f infra/docker-compose.yml logs worker
+docker compose -f infra/docker-compose.yml logs db
+
+# Restart specific service
+docker compose -f infra/docker-compose.yml restart api
+```
+
+#### API returns 500 or connection errors
+```bash
+# Verify database is initialized
+docker compose -f infra/docker-compose.yml exec db psql -U postgres -c "\dt"
+
+# Should show: conversations, messages, message_embeddings, etc.
+
+# If tables missing, initialize schema:
+docker compose -f infra/docker-compose.yml exec db psql -U postgres < infra/init_db.sql
+```
+
+#### Import script fails with "ModuleNotFoundError"
+```bash
+# Make sure you've installed the import dependencies:
+pip install -r ingest/requirements.txt
+
+# Verify installation:
+pip list | grep -E "click|psycopg2|boto3|tenacity"
+```
+
+#### Database connection refused during import
+```bash
+# The import script runs on host, connects to Docker container
+# Make sure you use localhost:5432, NOT db:5432
+
+# Correct:
+python ingest/import_chatgpt_export.py \
+  --db-url "postgresql://postgres:postgres@localhost:5432/postgres" \
+  /path/to/export.zip
+
+# Wrong (this is for container-to-container communication):
+# --db-url "postgresql://postgres:postgres@db:5432/postgres"
+```
+
+### Local Development Issues
+
+#### psycopg2 build issues on macOS
+- **Problem**: Missing PostgreSQL headers
+- **Solution**:
+```bash
+brew install postgresql
+# OR use binary version:
+pip install psycopg2-binary
+```
+
+#### Node.js dependencies fail to install
+```bash
+cd ui
+rm -rf node_modules package-lock.json
+npm install --legacy-peer-deps
+```
+
+#### Worker not processing tasks
+```bash
+# Check Redis is running
+docker compose -f infra/docker-compose.yml ps redis
+
+# Check worker logs
+docker compose -f infra/docker-compose.yml logs worker
+
+# For local development:
+cd worker
+celery -A tasks worker --loglevel=debug
+```
+
+### General Issues
+
+#### Need to reset the database?
+```bash
+make dev-down   # Stop and remove containers + volumes
 make dev-up     # Recreate with fresh volumes
 ```
 
-### MCP Server not connecting?
+#### Port conflicts
+```bash
+# Check what's using ports
+lsof -i :3000  # UI (Next.js)
+lsof -i :8000  # API (FastAPI)
+lsof -i :5432  # PostgreSQL
+lsof -i :6379  # Redis
+lsof -i :9000  # MinIO
+lsof -i :9001  # MinIO Console
+
+# Kill conflicting processes
+kill -9 <PID>
+```
+
+#### MCP Server not connecting?
 See the comprehensive troubleshooting guide in [docs/CONNECTING_AI.md](docs/CONNECTING_AI.md).
+
+#### Chatbot CLI errors?
+See [docs/CHATBOT_CLI.md](docs/CHATBOT_CLI.md) for provider-specific troubleshooting.
 
 ---
 
