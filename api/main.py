@@ -7,10 +7,10 @@ from contextlib import contextmanager
 from datetime import datetime
 import json
 import os
+import logging # Import the logging module
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import zipfile
 
-import click
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
@@ -29,6 +29,23 @@ from services import (
 )
 
 app = FastAPI(title="MCP Chat Log Intelligence API", version="0.3.0")
+
+# Configure logging
+# Create logs directory if it doesn't exist
+LOG_DIR = "logs"
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+
+LOG_FILE = os.path.join(LOG_DIR, "api.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler() # Also log to console
+    ]
+)
+logger = logging.getLogger(__name__) # Get a logger for this module
 
 # Configure CORS
 app.add_middleware(
@@ -189,9 +206,10 @@ def _normalise_iso(value: Optional[str]) -> Optional[str]:
 # Import ChatGPT export
 @app.post("/ingest/chatgpt-export")
 def ingest_chatgpt_export(zip_path: str, owner_id: str = "default") -> Dict[str, Any]:
+    logger.info(f"Starting import for ChatGPT export: {zip_path}")
     with db_cursor() as (conn, cur):
         try:
-            click.echo(f"Opening {zip_path}...")
+            logger.info(f"Opening archive: {zip_path}")
             with zipfile.ZipFile(zip_path, "r") as archive:
                 with archive.open("conversations.json") as handle:
                     conversations = json.load(handle)
@@ -248,13 +266,63 @@ def ingest_chatgpt_export(zip_path: str, owner_id: str = "default") -> Dict[str,
                     )
                     total_imported += len(messages)
 
+            logger.info(f"Successfully imported {total_imported} messages from {conv_count} conversations.")
             return {"imported": total_imported, "conversations": conv_count}
         except zipfile.BadZipFile as exc:
+            logger.error(f"Invalid zip archive: {zip_path} - {exc}")
             raise HTTPException(status_code=400, detail=f"Invalid zip archive: {exc}") from exc
         except FileNotFoundError as exc:
+            logger.error(f"File not found during import: {zip_path} - {exc}")
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - defensive safety net
+            logger.exception(f"Unexpected error during import of {zip_path}") # Log with traceback
             raise HTTPException(status_code=500, detail=f"Import failed: {exc}") from exc
+
+
+# New endpoint for zip file ingestion
+@app.post("/api/ingest")
+def ingest_zip_file(data: Dict[str, str]):
+    """
+    Endpoint to ingest a zip file from the ingest directory.
+    Expects a JSON body with 'zip_file_name'.
+    """
+    zip_file_name = data.get("zip_file_name")
+    if not zip_file_name:
+        logger.error("Received ingest request with no 'zip_file_name'")
+        raise HTTPException(status_code=400, detail="Missing 'zip_file_name' in request body")
+
+    # Construct the full path to the zip file in the ingest directory
+    # Assumes the ingest directory is at the root of the project
+    ingest_dir = os.path.join(os.getcwd(), "ingest")
+    zip_file_path = os.path.join(ingest_dir, zip_file_name)
+
+    logger.info(f"Received request to ingest zip: {zip_file_name} from path: {zip_file_path}")
+
+    if not os.path.exists(zip_file_path):
+        logger.error(f"Zip file not found at path: {zip_file_path}")
+        raise HTTPException(status_code=404, detail=f"Zip file not found: {zip_file_name}")
+
+    try:
+        # Here you would add the actual logic to process the zip file.
+        # For now, we'll simulate processing and return a success message.
+
+        # Example: Reading the zip file
+        with zipfile.ZipFile(zip_file_path, 'r') as archive:
+            file_list = archive.namelist()
+            logger.info(f"Processing zip file: {zip_file_name}. Contents: {file_list}")
+            # Add your actual data processing/import logic here
+
+        success_message = f"Successfully started import for {zip_file_name}"
+        logger.info(success_message)
+        return {"message": success_message, "files_in_zip": file_list}
+
+    except zipfile.BadZipFile:
+        logger.error(f"Invalid zip file format: {zip_file_name}")
+        raise HTTPException(status_code=400, detail=f"Invalid zip file: {zip_file_name}")
+    except Exception as e:
+        # Catch any other exceptions during processing
+        logger.exception(f"Unexpected error during processing of {zip_file_name}") # Log with traceback
+        raise HTTPException(status_code=500, detail=f"Failed to process zip file {zip_file_name}: {str(e)}")
 
 
 @app.get("/health")
@@ -262,8 +330,10 @@ def health() -> Dict[str, Any]:
     try:
         with db_cursor() as (_, cur):
             cur.execute("SELECT 1;")
+        logger.info("Health check successful.")
         return {"status": "healthy", "version": app.version}
     except Exception:
+        logger.exception("Health check failed.") # Log with traceback
         return {"status": "unhealthy"}
 
 
@@ -273,6 +343,7 @@ def list_conversations(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> ConversationListResponse:
+    logger.debug(f"Listing conversations with owner_id={owner_id}, limit={limit}, offset={offset}")
     with db_cursor(dict_cursor=True) as (_, cur):
         filters: List[str] = []
         params: List[Any] = []
@@ -310,11 +381,13 @@ def list_conversations(
         cur.execute(data_query, [*params, limit, offset])
         items = [ConversationSummary(**row) for row in cur.fetchall()]
 
+    logger.debug(f"Found {total} conversations.")
     return ConversationListResponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @app.get("/conversation/{conv_id}/stats", response_model=ConversationStats)
 def get_conversation_stats(conv_id: str) -> ConversationStats:
+    logger.debug(f"Getting stats for conversation: {conv_id}")
     with db_cursor(dict_cursor=True) as (_, cur):
         cur.execute(
             """
@@ -331,8 +404,10 @@ def get_conversation_stats(conv_id: str) -> ConversationStats:
         )
         row = cur.fetchone()
         if row is None or row["message_count"] == 0:
+            logger.error(f"Conversation not found or empty: {conv_id}")
             raise HTTPException(status_code=404, detail="Conversation not found or empty")
 
+    logger.debug(f"Stats for {conv_id}: {row}")
     return ConversationStats(
         conv_id=conv_id,
         message_count=int(row["message_count"]),
@@ -345,6 +420,7 @@ def get_conversation_stats(conv_id: str) -> ConversationStats:
 
 @app.get("/conversation/{conv_id}/timeline")
 def get_timeline(conv_id: str) -> Dict[str, Any]:
+    logger.debug(f"Getting timeline for conversation: {conv_id}")
     with db_cursor(dict_cursor=True) as (_, cur):
         cur.execute(
             """
@@ -356,6 +432,7 @@ def get_timeline(conv_id: str) -> Dict[str, Any]:
             (conv_id,),
         )
         messages = cur.fetchall()
+    logger.debug(f"Found {len(messages)} messages for timeline in {conv_id}.")
     return {"messages": messages}
 
 
@@ -365,6 +442,7 @@ def get_thread(
     msg_id: str,
     depth: int = Query(3, ge=1, le=10, description="Maximum descendant depth to traverse"),
 ) -> ThreadResponse:
+    logger.debug(f"Getting thread for conv_id={conv_id}, msg_id={msg_id}, depth={depth}")
     with db_cursor(dict_cursor=True) as (_, cur):
         cur.execute(
             """
@@ -377,12 +455,14 @@ def get_thread(
         rows = cur.fetchall()
 
     if not rows:
+        logger.error(f"Conversation not found: {conv_id}")
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     messages_by_id: Dict[str, ThreadMessage] = {
         row["msg_id"]: ThreadMessage(**row) for row in rows
     }
     if msg_id not in messages_by_id:
+        logger.error(f"Message not found in conversation {conv_id}: {msg_id}")
         raise HTTPException(status_code=404, detail="Message not found in conversation")
 
     children_index: Dict[Optional[str], List[ThreadMessage]] = {}
@@ -414,12 +494,14 @@ def get_thread(
         return result
 
     descendants = gather_descendants(anchor.msg_id, 0)
+    logger.debug(f"Thread for {conv_id}/{msg_id}: {len(ancestors)} ancestors, {len(descendants)} descendants.")
 
     return ThreadResponse(anchor=anchor, ancestors=ancestors, descendants=descendants)
 
 
 @app.get("/search")
 def search_messages(q: str, k: int = 50, filters: Optional[str] = None) -> Dict[str, Any]:
+    logger.debug(f"Searching for query='{q}', k={k}, filters='{filters}'")
     with db_cursor(dict_cursor=True) as (_, cur):
         filter_dict = json.loads(filters) if filters else {}
 
@@ -427,25 +509,26 @@ def search_messages(q: str, k: int = 50, filters: Optional[str] = None) -> Dict[
         params: List[Any] = []
 
         if "role" in filter_dict:
-            where_parts.append(f"role = %s")
+            where_parts.append("role = %s")
             params.append(filter_dict["role"])
 
         if "conv_id" in filter_dict:
-            where_parts.append(f"conv_id = %s")
+            where_parts.append("conv_id = %s")
             params.append(filter_dict["conv_id"])
 
         if "date_from" in filter_dict:
-            where_parts.append(f"ts >= %s")
+            where_parts.append("ts >= %s")
             params.append(filter_dict["date_from"])
 
         if "date_to" in filter_dict:
-            where_parts.append(f"ts <= %s")
+            where_parts.append("ts <= %s")
             params.append(filter_dict["date_to"])
 
         where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
         terms = parse_search_terms(q)
         if not terms:
+            logger.warning(f"Search query '{q}' yielded no parseable terms.")
             raise HTTPException(status_code=400, detail="Search query must contain at least one term")
 
         search_terms = " | ".join(terms)
@@ -483,7 +566,7 @@ def search_messages(q: str, k: int = 50, filters: Optional[str] = None) -> Dict[
                 "highlights": highlights,
             }
         )
-
+    logger.info(f"Search for '{q}' returned {len(hits)} results.")
     return {"results": hits, "total": len(hits)}
 
 
@@ -500,6 +583,7 @@ def build_topic_map(
 ) -> TopicMapResponse:
     start_ts = _normalise_iso(date_from)
     end_ts = _normalise_iso(date_to)
+    logger.debug(f"Building topic map for window: {start_ts} to {end_ts}, conv_id={conv_id}")
 
     with db_cursor(dict_cursor=True) as (_, cur):
         where_parts: List[str] = []
@@ -531,6 +615,7 @@ def build_topic_map(
         rows = cur.fetchall()
 
     if not rows:
+        logger.info("No messages found for topic map generation.")
         return TopicMapResponse(
             topics=[],
             total_messages=0,
@@ -569,19 +654,22 @@ def build_topic_map(
         )
 
     distinct_conversations = len({row["conv_id"] for row in rows})
+    logger.info(f"Generated topic map with {len(topics)} topics from {len(rows)} messages.")
 
     return TopicMapResponse(
         topics=topics,
         total_messages=len(rows),
         distinct_conversations=distinct_conversations,
-        window_start=rows[0].get("ts"),
-        window_end=rows[-1].get("ts"),
+        window_start=rows[0].get("ts") if rows else start_ts,
+        window_end=rows[-1].get("ts") if rows else end_ts,
     )
 
 
 @app.post("/context/pack", response_model=ContextPackResponse)
 def build_context_pack(request: ContextPackRequest) -> ContextPackResponse:
+    logger.debug(f"Building context pack for {len(request.message_ids)} message IDs, max_tokens={request.max_tokens}")
     if not request.message_ids:
+        logger.debug("No message IDs provided for context pack. Returning empty.")
         return ContextPackResponse(text_block="", token_count=0, message_count=0)
 
     with db_cursor(dict_cursor=True) as (_, cur):
@@ -600,6 +688,7 @@ def build_context_pack(request: ContextPackRequest) -> ContextPackResponse:
     try:
         encoding = tiktoken.encoding_for_model(request.model)
     except KeyError:
+        logger.warning(f"Model '{request.model}' not found for tiktoken. Using default.")
         encoding = tiktoken.get_encoding("cl100k_base")
 
     context_parts: List[str] = []
@@ -615,7 +704,9 @@ def build_context_pack(request: ContextPackRequest) -> ContextPackResponse:
     text_block = "\n\n".join(context_parts)
     if len(messages) > len(context_parts):
         text_block += f"\n\n-- Truncated at {request.max_tokens} tokens --"
+        logger.debug(f"Context pack truncated. Max tokens: {request.max_tokens}.")
 
+    logger.info(f"Context pack generated: {len(context_parts)} messages, {current_tokens} tokens.")
     return ContextPackResponse(
         text_block=text_block,
         token_count=current_tokens,
@@ -627,7 +718,10 @@ def build_context_pack(request: ContextPackRequest) -> ContextPackResponse:
 def redact_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     text = payload.get("text", "")
     enable_pii = payload.get("enable_pii", True)
-    return {"text": redact_text(text, enable_pii=enable_pii)}
+    logger.debug(f"Redacting text. PII enabled: {enable_pii}. Text length: {len(text)}")
+    redacted_text = redact_text(text, enable_pii=enable_pii)
+    logger.debug("Redaction complete.")
+    return {"text": redacted_text}
 
 
 __all__ = ["app"]

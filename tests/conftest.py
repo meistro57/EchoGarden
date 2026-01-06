@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 
 try:  # pragma: no cover - exercised implicitly during imports
-    import pydantic_settings  # type: ignore
+    import pydantic_settings  # type: ignore  # noqa: F401
 except ModuleNotFoundError:  # pragma: no cover - fallback for test environment
     stub = types.ModuleType("pydantic_settings")
 

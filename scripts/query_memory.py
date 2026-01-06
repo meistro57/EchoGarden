@@ -3,7 +3,6 @@
 
 import sys
 import httpx
-import json
 
 API_BASE = "http://localhost:8000"
 

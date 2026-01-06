@@ -6,9 +6,7 @@ import psycopg2
 from psycopg2.extras import execute_batch
 import hashlib
 import re
-from pathlib import Path
 from datetime import datetime, timezone
-import os
 from typing import Dict, Any
 
 # ---------------- Schema bootstrap ----------------
