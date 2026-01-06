@@ -32,3 +32,23 @@ def test_build_highlights_avoids_duplicate_overlaps() -> None:
 
     assert len(highlights) == 1
     assert highlights[0].count("**alpha**") == 1
+
+
+def test_parse_search_terms_handles_empty_query() -> None:
+    """Empty query should return an empty list."""
+    assert parse_search_terms("") == []
+    assert parse_search_terms("   ") == []
+
+
+def test_build_highlights_handles_empty_inputs() -> None:
+    """Empty text or terms should return an empty list."""
+    assert build_highlights("", ["term"]) == []
+    assert build_highlights("some text", []) == []
+    assert build_highlights("some text", [""]) == []
+
+
+def test_build_highlights_respects_limit() -> None:
+    """Highlights should stop at the configured limit."""
+    snippet = "alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta"
+    highlights = build_highlights(snippet, ["alpha", "beta", "gamma", "delta"], window=3, limit=2)
+    assert len(highlights) == 2

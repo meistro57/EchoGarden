@@ -1,6 +1,6 @@
 # Makefile
 
-.PHONY: dev-init dev-up dev-stop dev-down test
+.PHONY: dev-init dev-up dev-stop dev-down test test-unit test-cov test-integration
 
 dev-init:
 	cp infra/.env.example infra/.env
@@ -18,4 +18,13 @@ dev-down:
 	docker compose -f infra/docker-compose.yml down --volumes --remove-orphans
 
 test:
-	python scripts/test_system.py
+	python -m pytest tests/ -v
+
+test-unit:
+	python -m pytest tests/ -v -m "not integration and not slow"
+
+test-cov:
+	python -m pytest tests/ --cov=api --cov=worker --cov-report=term-missing --cov-report=html
+
+test-integration:
+	python -m pytest scripts/test_system.py -v
