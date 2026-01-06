@@ -80,3 +80,48 @@ def test_extract_topics_filters_stopwords() -> None:
     topics = extract_topics(messages, limit=3, min_occurrences=2)
 
     assert [bundle.label for bundle in topics] == ["alpha"]
+
+
+def test_extract_topics_handles_empty_messages_list() -> None:
+    """Empty message list should return empty topics."""
+    topics = extract_topics([], limit=5, min_occurrences=2)
+    assert topics == []
+
+
+def test_extract_topics_handles_messages_with_no_tokens() -> None:
+    """Messages with only stopwords or empty text should produce no topics."""
+    messages = [
+        _make_message("c", "m1", "the and or is", "2024-01-01T00:00:00"),
+        _make_message("c", "m2", "", "2024-01-02T00:00:00"),
+        _make_message("c", "m3", "a an", "2024-01-03T00:00:00"),
+    ]
+
+    topics = extract_topics(messages, limit=5, min_occurrences=1)
+    assert topics == []
+
+
+def test_extract_topics_handles_no_topics_meeting_minimum() -> None:
+    """When no tokens meet min_occurrences, return empty list."""
+    messages = [
+        _make_message("c", "m1", "unique word", "2024-01-01T00:00:00"),
+        _make_message("c", "m2", "different text", "2024-01-02T00:00:00"),
+    ]
+
+    topics = extract_topics(messages, limit=5, min_occurrences=3)
+    assert topics == []
+
+
+def test_extract_topics_trims_long_anchor_text() -> None:
+    """Anchor text exceeding limit should be truncated."""
+    long_text = "keyword " + "x" * 300
+    messages = [
+        _make_message("c", "m1", long_text, "2024-01-01T00:00:00"),
+        _make_message("c", "m2", "keyword again", "2024-01-02T00:00:00"),
+    ]
+
+    topics = extract_topics(messages, limit=5, min_occurrences=2)
+    keyword_bundle = next(b for b in topics if b.label == "keyword")
+
+    # Check that the anchor text is trimmed and ends with ellipsis
+    assert len(keyword_bundle.anchors[0].text) <= 281
+    assert keyword_bundle.anchors[0].text.endswith("…")

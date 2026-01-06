@@ -57,3 +57,27 @@ def test_normalize_message_generates_timestamp_when_missing() -> None:
 
     timestamp = datetime.fromisoformat(normalised["ts"])
     assert timestamp.year >= 2023  # basic sanity check that ISO parsing succeeds
+
+
+def test_redact_text_handles_none_input() -> None:
+    """None input should be treated as an empty string."""
+    result = redact_text(None)
+    assert result == ""
+
+
+def test_normalize_message_handles_missing_content() -> None:
+    """Messages with no content should normalize gracefully."""
+    raw = {"role": "user"}
+    normalised = normalize_message(raw, conv_id="conv-empty")
+
+    assert normalised["text"] == ""
+    assert normalised["role"] == "user"
+    assert len(normalised["hash"]) == 64
+
+
+def test_normalize_message_uses_text_field_as_fallback() -> None:
+    """When content is missing, text field should be used."""
+    raw = {"text": "Hello from text field", "role": "assistant"}
+    normalised = normalize_message(raw, conv_id="conv-text")
+
+    assert normalised["text"] == "Hello from text field"
